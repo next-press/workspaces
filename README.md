@@ -1,22 +1,25 @@
-# auroro/workspaces
+# Auroro Workspaces
 
-Composer plugin for PHP monorepo workspace management. Handles cascading installs with symlinked vendors, dependency-aware parallel command execution, dependency graph generation, and cross-worktree package linking.
+Composer plugin for PHP monorepo workspace management. Part of the Auroro framework ecosystem.
 
-## Setup
+Handles cascading installs with symlinked vendors, dependency-aware parallel command execution, dependency graph generation, and cross-worktree package linking.
 
-Require the plugin in your monorepo root `composer.json`:
+## Installation
+
+```bash
+composer require auroro/workspaces
+```
+
+## Configuration
+
+Add workspace paths to your root `composer.json`:
 
 ```json
 {
-    "require": {
-        "auroro/workspaces": "@dev"
-    },
-    "repositories": [
-        {"type": "path", "url": "packages/*", "options": {"symlink": true}},
-        {"type": "path", "url": "apps/*", "options": {"symlink": true}}
-    ],
     "extra": {
-        "workspaces": ["packages/*", "apps/*"]
+        "workspaces": {
+            "paths": ["packages/*", "apps/*"]
+        }
     },
     "config": {
         "allow-plugins": {
@@ -26,7 +29,22 @@ Require the plugin in your monorepo root `composer.json`:
 }
 ```
 
-The `extra.workspaces` array defines glob patterns for workspace package directories. Defaults to `["packages/*"]` if omitted.
+The `paths` array defines glob patterns for workspace package directories. Defaults to `["packages/*"]` if omitted.
+
+To also write the dependency graph to a committed location (e.g., for CI):
+
+```json
+{
+    "extra": {
+        "workspaces": {
+            "paths": ["packages/*", "apps/*"],
+            "graph": ".github/workspace.json"
+        }
+    }
+}
+```
+
+The graph is always written to `vendor/workspace.json`. The `graph` option writes an additional copy to the specified path (relative to the project root).
 
 ## What happens on `composer install`
 
@@ -34,7 +52,7 @@ Three things happen automatically after every `composer install` or `composer up
 
 1. **Workspace linking** — registers all workspace packages as path repositories in Composer's global config, making them available to other projects on the machine.
 
-2. **Dependency graph** — scans all workspace packages, builds an internal dependency graph, and writes it to `vendor/workspace.json`.
+2. **Dependency graph** — scans all workspace packages, builds an internal dependency graph, and writes it to `vendor/workspace.json` (and to the configured `graph` path if set).
 
 3. **Cascading vendor install** — for workspace packages that have a `bin` entry or a `composer.lock`, creates a `vendor/` directory with symlinks to root vendor packages, copies Composer metadata and bin proxies, then runs `composer dump-autoload` in parallel. No duplicate downloads — everything points back to the root vendor.
 
@@ -88,7 +106,7 @@ Show all linked worktrees for the monorepo, highlighting the current one.
 
 ## Dependency graph
 
-Written to `vendor/workspace.json` on every install/update:
+Written to `vendor/workspace.json` on every install/update (and to the `graph` path if configured):
 
 ```json
 {
