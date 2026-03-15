@@ -9,7 +9,19 @@
         "composer-plugin-api": "^2.6"
     },
     "require-dev": {
-        "composer/composer": "^2.6"
+        "composer/composer": "^2.6",
+        "pestphp/pest": "^4",
+        "phpstan/phpstan": "^2"
+    },
+    "scripts": {
+        "test": "pest",
+        "test:coverage": "XDEBUG_MODE=coverage pest --coverage",
+        "analyse": "phpstan analyse"
+    },
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
     },
     "extra": {
         "class": "Auroro\\Workspaces\\Composer\\Plugin",
