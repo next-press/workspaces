@@ -5,6 +5,7 @@
     "license": "MIT",
     "require": {
         "php": ">=8.3",
+        "auroro/composer": "self.version",
         "composer-plugin-api": "^2.6"
     },
     "require-dev": {

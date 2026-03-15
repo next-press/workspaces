@@ -52,3 +52,34 @@ it('returns null for undefined script', function () {
     expect($package->hasScript('test'))->toBeFalse();
     expect($package->script('test'))->toBeNull();
 });
+
+it('resolves @binname to bin entry path in scripts', function () {
+    $package = new Package(
+        name: 'auroro/lens',
+        path: 'packages/lens',
+        bin: ['bin/lens'],
+        scripts: ['audit' => '@lens audit'],
+    );
+
+    expect($package->script('audit'))->toBe('bin/lens audit');
+});
+
+it('resolves @php prefix in scripts', function () {
+    $package = new Package(
+        name: 'auroro/lens',
+        path: 'packages/lens',
+        scripts: ['audit' => '@php bin/lens audit'],
+    );
+
+    expect($package->script('audit'))->toBe('php bin/lens audit');
+});
+
+it('strips Composer callbacks from array scripts', function () {
+    $package = new Package(
+        name: 'auroro/clip',
+        path: 'packages/clip',
+        scripts: ['demo' => ['Composer\\Config::disableProcessTimeout', 'php demo.php']],
+    );
+
+    expect($package->script('demo'))->toBe('php demo.php');
+});

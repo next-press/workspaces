@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Auroro\Workspaces;
 
+use Auroro\Composer\ScriptResolver;
+
 final readonly class Package
 {
     /**
@@ -30,9 +32,9 @@ final readonly class Package
             return null;
         }
 
-        $script = $this->scripts[$name];
+        $resolver = new ScriptResolver($this->scripts, $this->bin);
 
-        return is_array($script) ? implode(' && ', $script) : $script;
+        return $resolver->resolve($this->scripts[$name]);
     }
 
     public function shortName(): string
