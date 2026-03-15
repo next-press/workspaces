@@ -1,0 +1,28 @@
+{
+    "name": "auroro/workspaces",
+    "description": "Composer plugin for PHP monorepo workspace management — cascading installs, dependency graph, filtering, and cross-worktree linking",
+    "type": "composer-plugin",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.3",
+        "composer-plugin-api": "^2.6"
+    },
+    "require-dev": {
+        "composer/composer": "^2.6"
+    },
+    "extra": {
+        "class": "Auroro\\Workspaces\\Composer\\Plugin",
+        "branch-alias": {
+            "dev-main": "0.1.x-dev"
+        },
+        "split": {
+            "target": "next-press/workspaces"
+        }
+    },
+    "autoload": {
+        "psr-4": {
+            "Auroro\\Workspaces\\": "src/"
+        }
+    },
+    "minimum-stability": "stable"
+}
