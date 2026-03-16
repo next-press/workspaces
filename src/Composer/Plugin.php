@@ -26,6 +26,11 @@ final class Plugin implements PluginInterface, Capable, EventSubscriberInterface
         $this->composer = $composer;
         $this->io = $io;
 
+        $extra = $composer->getPackage()->getExtra();
+        if (!($extra['workspaces']['autolink'] ?? false)) {
+            return;
+        }
+
         $factory = WorkspaceFactory::createWithComposerHome($composer);
         $factory->linker->link($factory->config);
     }
@@ -34,6 +39,11 @@ final class Plugin implements PluginInterface, Capable, EventSubscriberInterface
 
     public function uninstall(Composer $composer, IOInterface $io): void
     {
+        $extra = $composer->getPackage()->getExtra();
+        if (!($extra['workspaces']['autolink'] ?? false)) {
+            return;
+        }
+
         $factory = WorkspaceFactory::createWithComposerHome($composer);
         $factory->linker->unlink($factory->config, all: true);
     }

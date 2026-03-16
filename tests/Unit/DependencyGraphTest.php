@@ -189,3 +189,51 @@ it('filters packages by matcher', function () {
     expect($names)->toContain('auroro/phpx');
     expect($names)->toContain('auroro/phpx-lsp');
 });
+
+it('ignores external dependencies not in the packages list', function () {
+    $graph = new DependencyGraph([
+        new Package('auroro/bus', 'packages/bus', ['auroro/result', 'psr/container']),
+        new Package('auroro/result', 'packages/result'),
+    ]);
+
+    $order = $graph->topologicalOrder();
+
+    // External dep psr/container should be ignored
+    expect($order)->toBe(['auroro/result', 'auroro/bus']);
+    expect($order)->not->toContain('psr/container');
+});
+
+it('handles empty package list', function () {
+    $graph = new DependencyGraph([]);
+
+    expect($graph->packages())->toBe([]);
+    expect($graph->topologicalOrder())->toBe([]);
+    expect($graph->topologicalLevels())->toBe([]);
+    expect($graph->toArray())->toBe([
+        'packages' => [],
+        'topological_levels' => [],
+    ]);
+});
+
+it('filter returns empty graph when nothing matches', function () {
+    $graph = new DependencyGraph([
+        new Package('auroro/clip', 'packages/clip'),
+    ]);
+
+    $filtered = $graph->filter(new PackageMatcher(['nonexistent*']));
+
+    expect($filtered->packages())->toBe([]);
+});
+
+it('topologicalLevels ignores external dependencies not in the packages list', function () {
+    $graph = new DependencyGraph([
+        new Package('auroro/bus', 'packages/bus', ['auroro/result', 'psr/container']),
+        new Package('auroro/result', 'packages/result'),
+    ]);
+
+    $levels = $graph->topologicalLevels();
+
+    expect($levels)->toHaveCount(2);
+    expect($levels[0][0]->name)->toBe('auroro/result');
+    expect($levels[1][0]->name)->toBe('auroro/bus');
+});

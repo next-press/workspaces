@@ -152,3 +152,46 @@ it('returns the config path', function () {
 
     expect($repo->path())->toBe('/some/path/config.json');
 });
+
+it('returns empty entries when repositories is not an array', function () {
+    $path = createTempConfig(json_encode([
+        'repositories' => 'not-an-array',
+    ]));
+    $repo = new JsonGlobalConfigRepository($path);
+
+    expect($repo->entries())->toBe([]);
+});
+
+it('returns empty for invalid JSON content', function () {
+    $path = createTempConfig('not valid json {{{');
+    $repo = new JsonGlobalConfigRepository($path);
+
+    expect($repo->entries())->toBe([]);
+});
+
+it('returns empty for non-array JSON content', function () {
+    $path = createTempConfig('"just a string"');
+    $repo = new JsonGlobalConfigRepository($path);
+
+    expect($repo->entries())->toBe([]);
+});
+
+it('handles ensureJsonObjects for nested associative arrays', function () {
+    $path = createTempConfig(json_encode([
+        'extra' => [],
+        'require' => [],
+        'autoload' => [],
+    ]));
+    $repo = new JsonGlobalConfigRepository($path);
+
+    $repo->save([
+        new LinkedEntry(url: '/path/*', monorepo: 'auroro', worktree: 'main'),
+    ]);
+
+    $raw = file_get_contents($path);
+
+    // Empty object keys should be serialized as {} not []
+    expect($raw)->toContain('"extra": {}');
+    expect($raw)->toContain('"require": {}');
+    expect($raw)->toContain('"autoload": {}');
+});

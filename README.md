@@ -31,7 +31,15 @@ Add workspace paths to your root `composer.json`:
 
 The `paths` array defines glob patterns for workspace package directories. Defaults to `["packages/*"]` if omitted.
 
-To also write the dependency graph to a committed location (e.g., for CI):
+### Options
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `paths` | `list<string>` | `["packages/*"]` | Glob patterns for workspace package directories |
+| `graph` | `string\|null` | `null` | Path to write the dependency graph (relative to root) |
+| `autolink` | `bool` | `false` | Automatically link/unlink packages on install/uninstall |
+
+### Dependency graph output
 
 ```json
 {
@@ -46,15 +54,34 @@ To also write the dependency graph to a committed location (e.g., for CI):
 
 The graph is always written to `vendor/workspace.json`. The `graph` option writes an additional copy to the specified path (relative to the project root).
 
+### Automatic linking
+
+By default, the plugin does **not** automatically link or unlink workspace packages. This means you must run `composer link` manually after installing to register packages as path repositories in Composer's global config.
+
+To have this happen automatically on `composer install` and `composer uninstall`, set `autolink` to `true`:
+
+```json
+{
+    "extra": {
+        "workspaces": {
+            "paths": ["packages/*", "apps/*"],
+            "autolink": true
+        }
+    }
+}
+```
+
+You can always link/unlink manually with `composer link` and `composer unlink` regardless of this setting.
+
 ## What happens on `composer install`
 
-Three things happen automatically after every `composer install` or `composer update`:
+Two things happen automatically after every `composer install` or `composer update`:
 
-1. **Workspace linking** — registers all workspace packages as path repositories in Composer's global config, making them available to other projects on the machine.
+1. **Dependency graph** — scans all workspace packages, builds an internal dependency graph, and writes it to `vendor/workspace.json` (and to the configured `graph` path if set).
 
-2. **Dependency graph** — scans all workspace packages, builds an internal dependency graph, and writes it to `vendor/workspace.json` (and to the configured `graph` path if set).
+2. **Cascading vendor install** — for workspace packages that have a `bin` entry or a `composer.lock`, creates a `vendor/` directory with symlinks to root vendor packages, copies Composer metadata and bin proxies, then runs `composer dump-autoload` in parallel. No duplicate downloads — everything points back to the root vendor.
 
-3. **Cascading vendor install** — for workspace packages that have a `bin` entry or a `composer.lock`, creates a `vendor/` directory with symlinks to root vendor packages, copies Composer metadata and bin proxies, then runs `composer dump-autoload` in parallel. No duplicate downloads — everything points back to the root vendor.
+If `autolink` is enabled, workspace linking also runs automatically (see above).
 
 ## Commands
 

@@ -122,3 +122,88 @@ it('returns empty list for non-matching globs', function () {
 
     expect($packages)->toBe([]);
 });
+
+it('skips directories with invalid JSON in composer.json', function () {
+    $root = createTempMonorepo();
+    addPackage($root, 'packages/valid', 'auroro/valid');
+
+    // Create a directory with invalid JSON
+    $invalidDir = $root . '/packages/invalid';
+    mkdir($invalidDir, 0755, true);
+    file_put_contents($invalidDir . '/composer.json', 'not valid json {{{');
+
+    $discovery = new PackageDiscovery();
+    $packages = $discovery->discover($root, ['packages/*']);
+
+    expect($packages)->toHaveCount(1);
+    expect($packages[0]->name)->toBe('auroro/valid');
+});
+
+it('skips directories with composer.json missing name field', function () {
+    $root = createTempMonorepo();
+    addPackage($root, 'packages/valid', 'auroro/valid');
+
+    // Create a directory with JSON missing name
+    $noNameDir = $root . '/packages/noname';
+    mkdir($noNameDir, 0755, true);
+    file_put_contents($noNameDir . '/composer.json', json_encode([
+        'description' => 'package without name',
+    ]));
+
+    $discovery = new PackageDiscovery();
+    $packages = $discovery->discover($root, ['packages/*']);
+
+    expect($packages)->toHaveCount(1);
+    expect($packages[0]->name)->toBe('auroro/valid');
+});
+
+it('extracts bin entries from composer.json', function () {
+    $root = createTempMonorepo();
+
+    $dir = $root . '/packages/clip';
+    mkdir($dir, 0755, true);
+    file_put_contents($dir . '/composer.json', json_encode([
+        'name' => 'auroro/clip',
+        'bin' => ['bin/clip'],
+    ]));
+
+    $discovery = new PackageDiscovery();
+    $packages = $discovery->discover($root, ['packages/*']);
+
+    expect($packages[0]->bin)->toBe(['bin/clip']);
+});
+
+it('skips unreadable composer.json', function () {
+    $root = createTempMonorepo();
+    addPackage($root, 'packages/valid', 'auroro/valid');
+
+    $unreadableDir = $root . '/packages/unreadable';
+    mkdir($unreadableDir, 0755, true);
+    file_put_contents($unreadableDir . '/composer.json', '{}');
+    chmod($unreadableDir . '/composer.json', 0000);
+
+    $discovery = new PackageDiscovery();
+    $packages = $discovery->discover($root, ['packages/*']);
+
+    // Restore permissions for cleanup
+    chmod($unreadableDir . '/composer.json', 0644);
+
+    expect($packages)->toHaveCount(1);
+    expect($packages[0]->name)->toBe('auroro/valid');
+});
+
+it('extracts scripts from composer.json', function () {
+    $root = createTempMonorepo();
+
+    $dir = $root . '/packages/clip';
+    mkdir($dir, 0755, true);
+    file_put_contents($dir . '/composer.json', json_encode([
+        'name' => 'auroro/clip',
+        'scripts' => ['test' => 'pest', 'analyse' => 'phpstan'],
+    ]));
+
+    $discovery = new PackageDiscovery();
+    $packages = $discovery->discover($root, ['packages/*']);
+
+    expect($packages[0]->scripts)->toBe(['test' => 'pest', 'analyse' => 'phpstan']);
+});
