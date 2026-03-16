@@ -21,6 +21,7 @@ final class EachCommand extends BaseCommand
         $this->setName('each');
         $this->setDescription('Run a composer script or command in each workspace package');
         $this->addOption('filter', 'f', InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Filter packages by glob pattern');
+        $this->addOption('bail', 'b', InputOption::VALUE_NONE, 'Stop on first failure');
         $this->addArgument('args', InputArgument::IS_ARRAY | InputArgument::REQUIRED, 'Composer script name, or command after --');
         $this->ignoreValidationErrors();
     }
@@ -47,16 +48,19 @@ final class EachCommand extends BaseCommand
             return 1;
         }
 
+        $bail = (bool) $input->getOption('bail');
+        $stdin = stream_get_contents(STDIN) ?: '';
+
         $isRawCommand = $this->isRawCommand();
 
         if ($isRawCommand) {
-            return $this->runRawCommand($args, $matched, $factory->config->rootDir, $output);
+            return $this->runRawCommand($args, $matched, $factory->config->rootDir, $output, $bail, $stdin);
         }
 
-        return $this->runScript($args[0], $matched, $factory->config->rootDir, $output);
+        return $this->runScript($args[0], $matched, $factory->config->rootDir, $output, $bail, $stdin);
     }
 
-    private function runScript(string $scriptName, DependencyGraph $matched, string $rootDir, OutputInterface $output): int
+    private function runScript(string $scriptName, DependencyGraph $matched, string $rootDir, OutputInterface $output, bool $bail, string $stdin): int
     {
         $succeeded = 0;
         $failed = 0;
@@ -77,16 +81,20 @@ final class EachCommand extends BaseCommand
                 $tasks[] = ['package' => $package, 'command' => $command];
             }
 
-            $results = $this->runLevel($tasks, $rootDir, $output);
+            $results = $this->runLevel($tasks, $rootDir, $output, $stdin);
             $succeeded += $results['succeeded'];
             $failed += $results['failed'];
+
+            if ($bail && $failed > 0) {
+                return $this->printSummary($output, $succeeded, $failed, $skipped);
+            }
         }
 
         return $this->printSummary($output, $succeeded, $failed, $skipped);
     }
 
     /** @param list<string> $args */
-    private function runRawCommand(array $args, DependencyGraph $matched, string $rootDir, OutputInterface $output): int
+    private function runRawCommand(array $args, DependencyGraph $matched, string $rootDir, OutputInterface $output, bool $bail, string $stdin): int
     {
         $command = implode(' ', $args);
         $succeeded = 0;
@@ -94,13 +102,17 @@ final class EachCommand extends BaseCommand
 
         foreach ($matched->topologicalLevels() as $level) {
             $tasks = array_map(
-                fn(Package $p) => ['package' => $p, 'command' => $command],
+                fn (Package $p) => ['package' => $p, 'command' => $command],
                 $level,
             );
 
-            $results = $this->runLevel($tasks, $rootDir, $output);
+            $results = $this->runLevel($tasks, $rootDir, $output, $stdin);
             $succeeded += $results['succeeded'];
             $failed += $results['failed'];
+
+            if ($bail && $failed > 0) {
+                return $this->printSummary($output, $succeeded, $failed, 0);
+            }
         }
 
         return $this->printSummary($output, $succeeded, $failed, 0);
@@ -112,7 +124,7 @@ final class EachCommand extends BaseCommand
      * @param list<array{package: Package, command: string}> $tasks
      * @return array{succeeded: int, failed: int}
      */
-    private function runLevel(array $tasks, string $rootDir, OutputInterface $output): array
+    private function runLevel(array $tasks, string $rootDir, OutputInterface $output, string $stdin): array
     {
         if ($tasks === []) {
             return ['succeeded' => 0, 'failed' => 0];
@@ -130,12 +142,15 @@ final class EachCommand extends BaseCommand
 
             $proc = proc_open(
                 $command,
-                [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+                [['pipe', 'r'], ['pipe', 'w'], ['pipe', 'w']],
                 $pipes,
                 $cwd,
             );
 
             if (is_resource($proc)) {
+                fwrite($pipes[0], $stdin);
+                fclose($pipes[0]);
+
                 $running[] = [
                     'proc' => $proc,
                     'pipes' => $pipes,
