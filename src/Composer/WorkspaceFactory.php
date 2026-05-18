@@ -36,11 +36,12 @@ final readonly class WorkspaceFactory
     private static function build(Composer $composer, string $configPath): self
     {
         $extra = $composer->getPackage()->getExtra();
-        /** @var array{paths: list<string>, graph?: string} $workspaces */
+        /** @var array{paths: list<string>, graph?: string, inject?: bool} $workspaces */
         $workspaces = $extra['workspaces'] ?? ['paths' => ['packages/*']];
         /** @var list<string> $globs */
         $globs = $workspaces['paths'] ?? ['packages/*'];
         $graphPath = $workspaces['graph'] ?? null;
+        $inject = (bool) ($workspaces['inject'] ?? false);
 
         $name = $composer->getPackage()->getName();
         $vendor = explode('/', $name, 2)[0];
@@ -58,6 +59,7 @@ final readonly class WorkspaceFactory
                 worktreeId: $worktreeId,
                 rootDir: $rootDir,
                 graphPath: $graphPath,
+                inject: $inject,
             ),
         );
     }

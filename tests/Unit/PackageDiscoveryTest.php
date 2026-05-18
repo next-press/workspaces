@@ -192,6 +192,135 @@ it('skips unreadable composer.json', function () {
     expect($packages[0]->name)->toBe('auroro/valid');
 });
 
+it('extracts autoload psr-4 from composer.json', function () {
+    $root = createTempMonorepo();
+
+    $dir = $root . '/packages/bus';
+    mkdir($dir, 0755, true);
+    file_put_contents($dir . '/composer.json', json_encode([
+        'name' => 'auroro/bus',
+        'autoload' => ['psr-4' => ['Auroro\\Bus\\' => 'src/']],
+    ]));
+
+    $discovery = new PackageDiscovery();
+    $packages = $discovery->discover($root, ['packages/*']);
+
+    expect($packages[0]->autoload)->toBe(['psr-4' => ['Auroro\\Bus\\' => 'src/']]);
+});
+
+it('extracts autoload files from composer.json', function () {
+    $root = createTempMonorepo();
+
+    $dir = $root . '/packages/result';
+    mkdir($dir, 0755, true);
+    file_put_contents($dir . '/composer.json', json_encode([
+        'name' => 'auroro/result',
+        'autoload' => [
+            'psr-4' => ['Auroro\\Result\\' => 'src/'],
+            'files' => ['src/functions.php'],
+        ],
+    ]));
+
+    $discovery = new PackageDiscovery();
+    $packages = $discovery->discover($root, ['packages/*']);
+
+    expect($packages[0]->autoload)->toBe([
+        'psr-4' => ['Auroro\\Result\\' => 'src/'],
+        'files' => ['src/functions.php'],
+    ]);
+});
+
+it('extracts autoload-dev psr-4 from composer.json', function () {
+    $root = createTempMonorepo();
+
+    $dir = $root . '/packages/clip';
+    mkdir($dir, 0755, true);
+    file_put_contents($dir . '/composer.json', json_encode([
+        'name' => 'auroro/clip',
+        'autoload' => ['psr-4' => ['Auroro\\Clip\\' => 'src/']],
+        'autoload-dev' => ['psr-4' => ['Auroro\\Clip\\Tests\\' => 'tests/']],
+    ]));
+
+    $discovery = new PackageDiscovery();
+    $packages = $discovery->discover($root, ['packages/*']);
+
+    expect($packages[0]->autoloadDev)->toBe(['psr-4' => ['Auroro\\Clip\\Tests\\' => 'tests/']]);
+});
+
+it('defaults autoload to empty when not present', function () {
+    $root = createTempMonorepo();
+    addPackage($root, 'packages/bus', 'auroro/bus');
+
+    $discovery = new PackageDiscovery();
+    $packages = $discovery->discover($root, ['packages/*']);
+
+    expect($packages[0]->autoload)->toBe([]);
+    expect($packages[0]->autoloadDev)->toBe([]);
+});
+
+it('extracts require-dev from composer.json', function () {
+    $root = createTempMonorepo();
+
+    $dir = $root . '/packages/clip';
+    mkdir($dir, 0755, true);
+    file_put_contents($dir . '/composer.json', json_encode([
+        'name' => 'auroro/clip',
+        'require-dev' => [
+            'pestphp/pest' => '^4',
+            'phpstan/phpstan' => '^2',
+        ],
+    ]));
+
+    $discovery = new PackageDiscovery();
+    $packages = $discovery->discover($root, ['packages/*']);
+
+    expect($packages[0]->requireDev)->toBe(['pestphp/pest' => '^4', 'phpstan/phpstan' => '^2']);
+});
+
+it('defaults require-dev to empty when not present', function () {
+    $root = createTempMonorepo();
+    addPackage($root, 'packages/bus', 'auroro/bus');
+
+    $discovery = new PackageDiscovery();
+    $packages = $discovery->discover($root, ['packages/*']);
+
+    expect($packages[0]->requireDev)->toBe([]);
+});
+
+it('extracts full require map from composer.json', function () {
+    $root = createTempMonorepo();
+
+    $dir = $root . '/packages/bus';
+    mkdir($dir, 0755, true);
+    file_put_contents($dir . '/composer.json', json_encode([
+        'name' => 'auroro/bus',
+        'require' => [
+            'php' => '>=8.3',
+            'auroro/result' => 'self.version',
+            'psr/container' => '^2.0',
+        ],
+    ]));
+
+    $discovery = new PackageDiscovery();
+    $packages = $discovery->discover($root, ['packages/*']);
+
+    expect($packages[0]->require)->toBe([
+        'php' => '>=8.3',
+        'auroro/result' => 'self.version',
+        'psr/container' => '^2.0',
+    ]);
+});
+
+it('defaults require to empty when not present', function () {
+    $root = createTempMonorepo();
+    addPackage($root, 'packages/bus', 'auroro/bus');
+
+    $discovery = new PackageDiscovery();
+    $packages = $discovery->discover($root, ['packages/*']);
+
+    expect($packages[0]->require)->toBe([]);
+});
+
 it('extracts scripts from composer.json', function () {
     $root = createTempMonorepo();
 

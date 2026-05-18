@@ -56,6 +56,29 @@ it('defaults graphPath to null', function () {
     expect($config->graphPath)->toBeNull();
 });
 
+it('defaults inject to false', function () {
+    $config = new WorkspaceConfig(
+        globs: ['packages/*'],
+        monorepo: 'auroro',
+        worktreeId: 'main',
+        rootDir: '/home/dev/auroro/main',
+    );
+
+    expect($config->inject)->toBeFalse();
+});
+
+it('holds inject when set to true', function () {
+    $config = new WorkspaceConfig(
+        globs: ['packages/*'],
+        monorepo: 'auroro',
+        worktreeId: 'main',
+        rootDir: '/home/dev/auroro/main',
+        inject: true,
+    );
+
+    expect($config->inject)->toBeTrue();
+});
+
 it('holds custom graphPath', function () {
     $config = new WorkspaceConfig(
         globs: ['packages/*'],

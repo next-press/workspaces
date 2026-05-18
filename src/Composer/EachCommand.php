@@ -49,7 +49,7 @@ final class EachCommand extends BaseCommand
         }
 
         $bail = (bool) $input->getOption('bail');
-        $stdin = stream_get_contents(STDIN) ?: '';
+        $stdin = stream_isatty(STDIN) ? '' : (stream_get_contents(STDIN) ?: '');
 
         $isRawCommand = $this->isRawCommand();
 

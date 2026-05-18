@@ -38,6 +38,14 @@ arch('dependency graph is readonly')
     ->expect('Auroro\Workspaces\DependencyGraph')
     ->toBeReadonly();
 
+arch('inject result is readonly')
+    ->expect('Auroro\Workspaces\Composer\InjectResult')
+    ->toBeReadonly();
+
+arch('workspace injector is readonly')
+    ->expect('Auroro\Workspaces\Composer\WorkspaceInjector')
+    ->toBeReadonly();
+
 arch('core does not depend on composer')
     ->expect('Auroro\Workspaces')
     ->not->toUse('Composer')

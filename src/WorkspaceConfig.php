@@ -12,6 +12,7 @@ final readonly class WorkspaceConfig
      * @param string       $worktreeId Current worktree identifier (directory basename)
      * @param string       $rootDir    Absolute path to the worktree root
      * @param string|null  $graphPath  Additional output path for workspace.json (relative to rootDir)
+     * @param bool         $inject     Dynamically inject workspace requires and autoload-dev
      */
     public function __construct(
         public array $globs,
@@ -19,6 +20,7 @@ final readonly class WorkspaceConfig
         public string $worktreeId,
         public string $rootDir,
         public ?string $graphPath = null,
+        public bool $inject = false,
     ) {}
 
     /** @return list<string> */

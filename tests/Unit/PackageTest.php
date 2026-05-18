@@ -64,6 +64,65 @@ it('resolves @binname to bin entry path in scripts', function () {
     expect($package->script('audit'))->toBe('bin/lens audit');
 });
 
+it('holds autoload psr-4 mappings', function () {
+    $package = new Package(
+        name: 'auroro/clip',
+        path: 'packages/clip',
+        autoload: ['psr-4' => ['Auroro\\Clip\\' => 'src/']],
+    );
+
+    expect($package->autoload)->toBe(['psr-4' => ['Auroro\\Clip\\' => 'src/']]);
+});
+
+it('holds autoload-dev psr-4 mappings', function () {
+    $package = new Package(
+        name: 'auroro/clip',
+        path: 'packages/clip',
+        autoloadDev: ['psr-4' => ['Auroro\\Clip\\Tests\\' => 'tests/']],
+    );
+
+    expect($package->autoloadDev)->toBe(['psr-4' => ['Auroro\\Clip\\Tests\\' => 'tests/']]);
+});
+
+it('defaults autoload and autoloadDev to empty arrays', function () {
+    $package = new Package(name: 'auroro/result', path: 'packages/result');
+
+    expect($package->autoload)->toBe([]);
+    expect($package->autoloadDev)->toBe([]);
+});
+
+it('holds requireDev entries', function () {
+    $package = new Package(
+        name: 'auroro/clip',
+        path: 'packages/clip',
+        requireDev: ['pestphp/pest' => '^4', 'phpstan/phpstan' => '^2'],
+    );
+
+    expect($package->requireDev)->toBe(['pestphp/pest' => '^4', 'phpstan/phpstan' => '^2']);
+});
+
+it('defaults requireDev to empty array', function () {
+    $package = new Package(name: 'auroro/result', path: 'packages/result');
+
+    expect($package->requireDev)->toBe([]);
+});
+
+it('holds require entries', function () {
+    $package = new Package(
+        name: 'auroro/clip',
+        path: 'packages/clip',
+        require: ['auroro/bus' => 'self.version', 'psr/container' => '^2.0'],
+    );
+
+    expect($package->require)->toBe(['auroro/bus' => 'self.version', 'psr/container' => '^2.0']);
+});
+
+it('defaults require to empty array', function () {
+    $package = new Package(name: 'auroro/result', path: 'packages/result');
+
+    expect($package->require)->toBe([]);
+});
+
 it('resolves @php prefix in scripts', function () {
     $package = new Package(
         name: 'auroro/lens',

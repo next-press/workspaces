@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Auroro\Workspaces\Composer;
 
 use Auroro\Workspaces\DependencyGraph;
+use Auroro\Workspaces\DependencyResolver;
 use Auroro\Workspaces\Package;
 use Auroro\Workspaces\PackageDiscovery;
+use Auroro\Workspaces\WorkspaceConfig;
 use Composer\Composer;
 use Composer\EventDispatcher\EventSubscriberInterface;
 use Composer\IO\IOInterface;
@@ -26,13 +28,36 @@ final class Plugin implements PluginInterface, Capable, EventSubscriberInterface
         $this->composer = $composer;
         $this->io = $io;
 
-        $extra = $composer->getPackage()->getExtra();
-        if (!($extra['workspaces']['autolink'] ?? false)) {
-            return;
+        $factory = WorkspaceFactory::createWithComposerHome($composer);
+
+        if ($factory->config->inject) {
+            $this->injectWorkspaces($composer, $io, $factory->config);
         }
 
-        $factory = WorkspaceFactory::createWithComposerHome($composer);
-        $factory->linker->link($factory->config);
+        if ($composer->getPackage()->getExtra()['workspaces']['autolink'] ?? false) {
+            $factory->linker->link($factory->config);
+        }
+    }
+
+    private function injectWorkspaces(Composer $composer, IOInterface $io, WorkspaceConfig $config): void
+    {
+        $discovery = new PackageDiscovery();
+        $packages = $discovery->discover($config->rootDir, $config->globs);
+
+        $injector = new WorkspaceInjector($config);
+        $result = $injector->inject($composer->getPackage(), $packages);
+
+        $parts = [
+            "{$result->requireCount} requires",
+            "{$result->requireDevCount} require-dev",
+            "{$result->autoloadDevCount} autoload-dev",
+        ];
+
+        if ($result->autoloadFilesCount > 0) {
+            $parts[] = "{$result->autoloadFilesCount} autoload-files";
+        }
+
+        $io->write('<comment>Workspaces:</comment> injected ' . implode(', ', $parts) . ' entries');
     }
 
     public function deactivate(Composer $composer, IOInterface $io): void {}
@@ -128,11 +153,29 @@ final class Plugin implements PluginInterface, Capable, EventSubscriberInterface
             return;
         }
 
+        // Parse installed.json for dependency resolution
+        $installedJsonPath = $rootVendor . '/composer/installed.json';
+
+        if (! file_exists($installedJsonPath)) {
+            return;
+        }
+
+        $installedJsonRaw = file_get_contents($installedJsonPath);
+
+        if ($installedJsonRaw === false) {
+            return;
+        }
+
+        /** @var array{packages: list<array{name: string, require?: array<string, string>}>, dev: bool, dev-package-names: list<string>} $installedJsonData */
+        $installedJsonData = json_decode($installedJsonRaw, true);
+
+        $resolver = DependencyResolver::fromInstalledJson($installedJsonData);
+
         $this->io->write('');
         $this->io->write('<comment>Workspaces:</comment> installing vendors...');
 
-        // Collect vendor package dirs to symlink (skip composer/, bin/, autoload.php)
-        $vendorPackages = $this->collectVendorPackages($rootVendor);
+        // Collect all vendor package dirs (skip composer/, bin/, autoload.php)
+        $allVendorPackages = $this->collectVendorPackages($rootVendor);
 
         // Process each workspace in parallel: symlink + dump-autoload
         $processes = [];
@@ -140,7 +183,22 @@ final class Plugin implements PluginInterface, Capable, EventSubscriberInterface
         foreach ($targets as $package) {
             $workspaceVendor = $rootDir . '/' . $package->path . '/vendor';
 
-            $this->symlinkVendor($rootVendor, $workspaceVendor, $vendorPackages);
+            // Resolve transitive deps for this workspace
+            $seeds = array_merge(
+                array_keys($package->require),
+                array_keys($package->requireDev),
+            );
+
+            $resolvedDeps = $resolver->resolve($seeds);
+            $resolvedSet = array_flip($resolvedDeps);
+
+            $scopedVendorPackages = array_values(array_filter(
+                $allVendorPackages,
+                fn (string $pkg) => isset($resolvedSet[$pkg]),
+            ));
+
+            $this->symlinkVendor($rootVendor, $workspaceVendor, $scopedVendorPackages);
+            $this->writeScopedInstalledJson($workspaceVendor, $installedJsonData, $resolvedSet);
 
             // Start dump-autoload in background
             $cmd = sprintf('composer dump-autoload -d %s -q', escapeshellarg($rootDir . '/' . $package->path));
@@ -222,14 +280,16 @@ final class Plugin implements PluginInterface, Capable, EventSubscriberInterface
             mkdir($workspaceVendor . '/composer', 0755, true);
         }
 
-        // Copy composer metadata so dump-autoload knows what's available
-        foreach (['installed.php', 'installed.json'] as $file) {
-            $source = $rootVendor . '/composer/' . $file;
+        // Copy installed.php for runtime InstalledVersions metadata
+        $installedPhp = $rootVendor . '/composer/installed.php';
 
-            if (file_exists($source)) {
-                copy($source, $workspaceVendor . '/composer/' . $file);
-            }
+        if (file_exists($installedPhp)) {
+            copy($installedPhp, $workspaceVendor . '/composer/installed.php');
         }
+
+        // Remove stale symlinks (packages no longer in the scoped set)
+        $scopedSet = array_flip($vendorPackages);
+        $this->removeStaleSymlinks($workspaceVendor, $scopedSet);
 
         // Symlink each package dir
         foreach ($vendorPackages as $pkg) {
@@ -251,6 +311,75 @@ final class Plugin implements PluginInterface, Capable, EventSubscriberInterface
 
         // Copy bin proxies from root vendor
         $this->copyBinProxies($rootVendor, $workspaceVendor);
+    }
+
+    /**
+     * Write a scoped installed.json containing only the resolved dependencies.
+     *
+     * @param array{packages: list<array<string, mixed>>, dev: bool, dev-package-names: list<string>} $fullData
+     * @param array<string, int> $resolvedSet Package names as keys (from array_flip)
+     */
+    private function writeScopedInstalledJson(
+        string $workspaceVendor,
+        array $fullData,
+        array $resolvedSet,
+    ): void {
+        $scoped = [
+            'packages' => array_values(array_filter(
+                $fullData['packages'],
+                fn (array $pkg): bool => isset($resolvedSet[$pkg['name']]),
+            )),
+            'dev' => $fullData['dev'],
+            'dev-package-names' => array_values(array_filter(
+                $fullData['dev-package-names'],
+                fn (string $name): bool => isset($resolvedSet[$name]),
+            )),
+        ];
+
+        $json = json_encode($scoped, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+        file_put_contents($workspaceVendor . '/composer/installed.json', $json);
+    }
+
+    /**
+     * Remove symlinks in workspace vendor that are not in the scoped set.
+     *
+     * @param array<string, int> $scopedSet Package names as keys (from array_flip)
+     */
+    private function removeStaleSymlinks(string $workspaceVendor, array $scopedSet): void
+    {
+        $skip = ['autoload.php', 'bin', 'composer'];
+
+        foreach (scandir($workspaceVendor) as $vendor) {
+            if ($vendor === '.' || $vendor === '..' || in_array($vendor, $skip, true)) {
+                continue;
+            }
+
+            $vendorPath = $workspaceVendor . '/' . $vendor;
+
+            if (! is_dir($vendorPath)) {
+                continue;
+            }
+
+            foreach (scandir($vendorPath) as $pkg) {
+                if ($pkg === '.' || $pkg === '..') {
+                    continue;
+                }
+
+                $fullName = $vendor . '/' . $pkg;
+                $link = $workspaceVendor . '/' . $fullName;
+
+                if (is_link($link) && ! isset($scopedSet[$fullName])) {
+                    unlink($link);
+                }
+            }
+
+            // Remove empty vendor directories
+            $remaining = array_diff(scandir($vendorPath), ['.', '..']);
+
+            if ($remaining === []) {
+                rmdir($vendorPath);
+            }
+        }
     }
 
     private function copyBinProxies(string $rootVendor, string $workspaceVendor): void

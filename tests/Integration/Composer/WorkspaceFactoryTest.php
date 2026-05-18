@@ -109,6 +109,24 @@ it('extracts monorepo vendor from package name', function () {
     expect($factory->config->monorepo)->toBe('test');
 });
 
+it('defaults inject to false when not configured', function () {
+    [$composer, $io] = composerInstance();
+
+    $factory = WorkspaceFactory::create($composer);
+
+    expect($factory->config->inject)->toBeFalse();
+});
+
+it('extracts inject true from extra.workspaces.inject', function () {
+    [$composer, $io] = composerInstance([
+        'workspaces' => ['paths' => ['packages/*'], 'inject' => true],
+    ]);
+
+    $factory = WorkspaceFactory::create($composer);
+
+    expect($factory->config->inject)->toBeTrue();
+});
+
 it('uses directory basename as worktreeId', function () {
     $vendorDir = sys_get_temp_dir() . '/ws-test-' . uniqid();
     mkdir($vendorDir, 0755, true);

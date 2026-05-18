@@ -50,6 +50,19 @@ final class PackageDiscovery
 
                 /** @var list<string> $bin */
                 $bin = $data['bin'] ?? [];
+                $bin = is_string($bin) ? [$bin] : $bin;
+
+                /** @var array{psr-4?: array<string, string>, files?: list<string>} $autoload */
+                $autoload = $data['autoload'] ?? [];
+
+                /** @var array{psr-4?: array<string, string>} $autoloadDev */
+                $autoloadDev = $data['autoload-dev'] ?? [];
+
+                /** @var array<string, string> $requireDev */
+                $requireDev = $data['require-dev'] ?? [];
+
+                /** @var array<string, string> $require */
+                $require = $data['require'] ?? [];
 
                 $raw[] = [
                     'name' => (string) $data['name'],
@@ -57,6 +70,10 @@ final class PackageDiscovery
                     'requires' => $requires,
                     'scripts' => $scripts,
                     'bin' => $bin,
+                    'autoload' => $autoload,
+                    'autoloadDev' => $autoloadDev,
+                    'requireDev' => $requireDev,
+                    'require' => $require,
                 ];
             }
         }
@@ -64,13 +81,17 @@ final class PackageDiscovery
         $knownNames = array_column($raw, 'name');
 
         return array_map(
-            /** @param array{name: string, path: string, requires: list<string>, scripts: array<string, string|list<string>>, bin: list<string>} $entry */
+            /** @param array{name: string, path: string, requires: list<string>, scripts: array<string, string|list<string>>, bin: list<string>, autoload: array{psr-4?: array<string, string>, files?: list<string>}, autoloadDev: array{psr-4?: array<string, string>}, requireDev: array<string, string>, require: array<string, string>} $entry */
             fn (array $entry) => new Package(
                 name: $entry['name'],
                 path: $entry['path'],
                 dependencies: array_values(array_intersect($entry['requires'], $knownNames)),
                 scripts: $entry['scripts'],
                 bin: $entry['bin'],
+                autoload: $entry['autoload'],
+                autoloadDev: $entry['autoloadDev'],
+                requireDev: $entry['requireDev'],
+                require: $entry['require'],
             ),
             $raw,
         );

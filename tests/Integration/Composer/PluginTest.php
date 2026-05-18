@@ -16,6 +16,21 @@ function createTempProjectDir(): string
     return $dir;
 }
 
+/**
+ * Write a valid installed.json to the vendor/composer directory.
+ *
+ * @param list<array{name: string, require?: array<string, string>}> $packages
+ * @param list<string> $devPackageNames
+ */
+function writeInstalledJson(string $vendorDir, array $packages, array $devPackageNames = []): void
+{
+    file_put_contents($vendorDir . '/composer/installed.json', json_encode([
+        'packages' => $packages,
+        'dev' => true,
+        'dev-package-names' => $devPackageNames,
+    ]));
+}
+
 function removeTempProjectDir(string $dir): void
 {
     if (! is_dir($dir)) {
@@ -96,6 +111,133 @@ it('activate calls link when autolink is true', function () {
     /** @var string $home */
     $home = $composer->getConfig()->get('home');
     expect(file_exists($home . '/config.json'))->toBeTrue();
+});
+
+// --- activate: injection ---
+
+it('activate injects requires when inject is true', function () {
+    $projectDir = createTempProjectDir();
+    $vendorDir = $projectDir . '/vendor';
+    mkdir($vendorDir, 0755, true);
+
+    // Create workspace packages
+    $busDir = $projectDir . '/packages/bus';
+    mkdir($busDir, 0755, true);
+    file_put_contents($busDir . '/composer.json', json_encode([
+        'name' => 'test/bus',
+        'autoload' => ['psr-4' => ['Test\\Bus\\' => 'src/']],
+    ]));
+
+    $clipDir = $projectDir . '/packages/clip';
+    mkdir($clipDir, 0755, true);
+    file_put_contents($clipDir . '/composer.json', json_encode([
+        'name' => 'test/clip',
+        'autoload' => ['psr-4' => ['Test\\Clip\\' => 'src/']],
+    ]));
+
+    [$composer, $io] = composerInstance([
+        'workspaces' => ['inject' => true, 'paths' => ['packages/*']],
+    ], $vendorDir);
+
+    $plugin = new Plugin();
+    $plugin->activate($composer, $io);
+
+    $requires = $composer->getPackage()->getRequires();
+    expect($requires)->toHaveKey('test/bus');
+    expect($requires)->toHaveKey('test/clip');
+});
+
+it('activate injects autoload-dev when inject is true', function () {
+    $projectDir = createTempProjectDir();
+    $vendorDir = $projectDir . '/vendor';
+    mkdir($vendorDir, 0755, true);
+
+    $clipDir = $projectDir . '/packages/clip';
+    mkdir($clipDir, 0755, true);
+    file_put_contents($clipDir . '/composer.json', json_encode([
+        'name' => 'test/clip',
+        'autoload' => ['psr-4' => ['Test\\Clip\\' => 'src/']],
+        'autoload-dev' => ['psr-4' => ['Test\\Clip\\Tests\\' => 'tests/']],
+    ]));
+
+    [$composer, $io] = composerInstance([
+        'workspaces' => ['inject' => true, 'paths' => ['packages/*']],
+    ], $vendorDir);
+
+    $plugin = new Plugin();
+    $plugin->activate($composer, $io);
+
+    $devAutoload = $composer->getPackage()->getDevAutoload();
+    expect($devAutoload['psr-4'])->toHaveKey('Test\\Clip\\Tests\\');
+    expect($devAutoload['psr-4']['Test\\Clip\\Tests\\'])->toBe('packages/clip/tests/');
+});
+
+it('activate skips injection when inject is not set', function () {
+    $projectDir = createTempProjectDir();
+    $vendorDir = $projectDir . '/vendor';
+    mkdir($vendorDir, 0755, true);
+
+    $busDir = $projectDir . '/packages/bus';
+    mkdir($busDir, 0755, true);
+    file_put_contents($busDir . '/composer.json', json_encode([
+        'name' => 'test/bus',
+    ]));
+
+    [$composer, $io] = composerInstance([
+        'workspaces' => ['paths' => ['packages/*']],
+    ], $vendorDir);
+
+    $plugin = new Plugin();
+    $plugin->activate($composer, $io);
+
+    expect($composer->getPackage()->getRequires())->not->toHaveKey('test/bus');
+});
+
+it('activate injects require-dev when inject is true', function () {
+    $projectDir = createTempProjectDir();
+    $vendorDir = $projectDir . '/vendor';
+    mkdir($vendorDir, 0755, true);
+
+    $clipDir = $projectDir . '/packages/clip';
+    mkdir($clipDir, 0755, true);
+    file_put_contents($clipDir . '/composer.json', json_encode([
+        'name' => 'test/clip',
+        'require-dev' => ['pestphp/pest' => '^4'],
+    ]));
+
+    [$composer, $io] = composerInstance([
+        'workspaces' => ['inject' => true, 'paths' => ['packages/*']],
+    ], $vendorDir);
+
+    $plugin = new Plugin();
+    $plugin->activate($composer, $io);
+
+    $devRequires = $composer->getPackage()->getDevRequires();
+    expect($devRequires)->toHaveKey('pestphp/pest');
+    expect($devRequires['pestphp/pest']->getPrettyConstraint())->toBe('^4');
+});
+
+it('activate outputs injection summary', function () {
+    $projectDir = createTempProjectDir();
+    $vendorDir = $projectDir . '/vendor';
+    mkdir($vendorDir, 0755, true);
+
+    $busDir = $projectDir . '/packages/bus';
+    mkdir($busDir, 0755, true);
+    file_put_contents($busDir . '/composer.json', json_encode([
+        'name' => 'test/bus',
+    ]));
+
+    [$composer, $io] = composerInstance([
+        'workspaces' => ['inject' => true, 'paths' => ['packages/*']],
+    ], $vendorDir);
+
+    $plugin = new Plugin();
+    $plugin->activate($composer, $io);
+
+    $output = $io->getOutput();
+    expect($output)->toContain('Workspaces:');
+    expect($output)->toContain('injected');
 });
 
 // --- deactivate ---
@@ -253,17 +395,20 @@ it('onPostInstallOrUpdate symlinks vendor packages for workspace with bin', func
     mkdir($vendorPkgDir, 0755, true);
     file_put_contents($vendorPkgDir . '/composer.json', '{}');
 
-    // Create installed.json for composer metadata
-    file_put_contents($vendorDir . '/composer/installed.json', '{}');
+    // Create installed.json with the vendor package
+    writeInstalledJson($vendorDir, [
+        ['name' => 'some-vendor/some-package'],
+    ]);
     file_put_contents($vendorDir . '/composer/installed.php', '<?php return [];');
 
-    // Create a workspace package with bin entry
+    // Create a workspace package with bin entry that requires the vendor package
     $pkgDir = $projectDir . '/packages/my-pkg';
     mkdir($pkgDir . '/bin', 0755, true);
     file_put_contents($pkgDir . '/bin/tool', '#!/usr/bin/env php');
     file_put_contents($pkgDir . '/composer.json', json_encode([
         'name' => 'test/my-pkg',
         'bin' => ['bin/tool'],
+        'require' => ['some-vendor/some-package' => '^1.0'],
     ]));
 
     [$composer, $io] = composerInstance([
@@ -328,6 +473,8 @@ it('onPostInstallOrUpdate copies bin proxies from root vendor', function () {
     file_put_contents($rootBinDir . '/pest', '#!/usr/bin/env php');
     chmod($rootBinDir . '/pest', 0755);
 
+    writeInstalledJson($vendorDir, []);
+
     // Create a workspace package with bin entry
     $pkgDir = $projectDir . '/packages/my-pkg';
     mkdir($pkgDir . '/bin', 0755, true);
@@ -361,13 +508,18 @@ it('onPostInstallOrUpdate does not overwrite existing symlinks', function () {
     mkdir($vendorPkgDir, 0755, true);
     file_put_contents($vendorPkgDir . '/marker.txt', 'original');
 
-    // Create a workspace package with bin
+    writeInstalledJson($vendorDir, [
+        ['name' => 'some-vendor/some-package'],
+    ]);
+
+    // Create a workspace package with bin that requires the vendor package
     $pkgDir = $projectDir . '/packages/my-pkg';
     mkdir($pkgDir . '/bin', 0755, true);
     file_put_contents($pkgDir . '/bin/tool', '#!/usr/bin/env php');
     file_put_contents($pkgDir . '/composer.json', json_encode([
         'name' => 'test/my-pkg',
         'bin' => ['bin/tool'],
+        'require' => ['some-vendor/some-package' => '^1.0'],
     ]));
 
     // Pre-create the symlink
@@ -392,6 +544,8 @@ it('onPostInstallOrUpdate installs workspaces with composer.lock', function () {
     $projectDir = createTempProjectDir();
     $vendorDir = $projectDir . '/vendor';
     mkdir($vendorDir . '/composer', 0755, true);
+
+    writeInstalledJson($vendorDir, []);
 
     // Create a workspace package with composer.lock (no bin)
     $pkgDir = $projectDir . '/packages/my-pkg';
@@ -419,6 +573,8 @@ it('onPostInstallOrUpdate outputs installing vendors message', function () {
     $projectDir = createTempProjectDir();
     $vendorDir = $projectDir . '/vendor';
     mkdir($vendorDir . '/composer', 0755, true);
+
+    writeInstalledJson($vendorDir, []);
 
     // Create a workspace package with bin
     $pkgDir = $projectDir . '/packages/my-pkg';
@@ -452,6 +608,8 @@ it('onPostInstallOrUpdate skips non-file entries in bin dir', function () {
     $rootBinDir = $vendorDir . '/bin';
     mkdir($rootBinDir . '/subdir', 0755, true);
 
+    writeInstalledJson($vendorDir, []);
+
     // Create a workspace package with bin entry
     $pkgDir = $projectDir . '/packages/my-pkg';
     mkdir($pkgDir . '/bin', 0755, true);
@@ -484,6 +642,8 @@ it('onPostInstallOrUpdate skips existing bin proxies', function () {
     mkdir($rootBinDir, 0755, true);
     file_put_contents($rootBinDir . '/pest', '#!/usr/bin/env php new');
 
+    writeInstalledJson($vendorDir, []);
+
     // Create a workspace package with bin entry
     $pkgDir = $projectDir . '/packages/my-pkg';
     mkdir($pkgDir . '/bin', 0755, true);
@@ -514,6 +674,8 @@ it('onPostInstallOrUpdate handles dump-autoload success for workspace packages',
     $projectDir = createTempProjectDir();
     $vendorDir = $projectDir . '/vendor';
     mkdir($vendorDir . '/composer', 0755, true);
+
+    writeInstalledJson($vendorDir, []);
 
     // Create a workspace package with bin entry
     $pkgDir = $projectDir . '/packages/my-pkg';
@@ -546,6 +708,8 @@ it('onPostInstallOrUpdate skips non-dir entries in vendor', function () {
     // Create a file (not a directory) directly in vendor
     file_put_contents($vendorDir . '/autoload.php', '<?php // autoload');
 
+    writeInstalledJson($vendorDir, []);
+
     // Create a workspace package with bin entry
     $pkgDir = $projectDir . '/packages/my-pkg';
     mkdir($pkgDir . '/bin', 0755, true);
@@ -566,4 +730,213 @@ it('onPostInstallOrUpdate skips non-dir entries in vendor', function () {
     // Should complete without error
     $output = $io->getOutput();
     expect($output)->toContain('installing vendors');
+});
+
+// --- scoped symlinks ---
+
+it('onPostInstallOrUpdate only symlinks transitive dependencies', function () {
+    $projectDir = createTempProjectDir();
+    $vendorDir = $projectDir . '/vendor';
+    mkdir($vendorDir . '/composer', 0755, true);
+
+    // Create vendor packages: a/a depends on b/b, c/c is unrelated
+    mkdir($vendorDir . '/a/a', 0755, true);
+    mkdir($vendorDir . '/b/b', 0755, true);
+    mkdir($vendorDir . '/c/c', 0755, true);
+
+    writeInstalledJson($vendorDir, [
+        ['name' => 'a/a', 'require' => ['b/b' => '^1.0']],
+        ['name' => 'b/b'],
+        ['name' => 'c/c'],
+    ]);
+    file_put_contents($vendorDir . '/composer/installed.php', '<?php return [];');
+
+    // Workspace requires only a/a
+    $pkgDir = $projectDir . '/packages/my-pkg';
+    mkdir($pkgDir . '/bin', 0755, true);
+    file_put_contents($pkgDir . '/bin/tool', '#!/usr/bin/env php');
+    file_put_contents($pkgDir . '/composer.json', json_encode([
+        'name' => 'test/my-pkg',
+        'bin' => ['bin/tool'],
+        'require' => ['a/a' => '^1.0'],
+    ]));
+
+    [$composer, $io] = composerInstance([
+        'workspaces' => ['paths' => ['packages/*']],
+    ], $vendorDir);
+
+    $plugin = new Plugin();
+    $plugin->activate($composer, $io);
+    $plugin->onPostInstallOrUpdate();
+
+    $workspaceVendor = $projectDir . '/packages/my-pkg/vendor';
+
+    // a/a and b/b should be symlinked (b/b is transitive dep of a/a)
+    expect(is_link($workspaceVendor . '/a/a'))->toBeTrue();
+    expect(is_link($workspaceVendor . '/b/b'))->toBeTrue();
+
+    // c/c should NOT be symlinked (not a dependency)
+    expect(file_exists($workspaceVendor . '/c/c'))->toBeFalse();
+});
+
+it('onPostInstallOrUpdate writes scoped installed.json', function () {
+    $projectDir = createTempProjectDir();
+    $vendorDir = $projectDir . '/vendor';
+    mkdir($vendorDir . '/composer', 0755, true);
+
+    mkdir($vendorDir . '/a/a', 0755, true);
+    mkdir($vendorDir . '/b/b', 0755, true);
+
+    writeInstalledJson($vendorDir, [
+        ['name' => 'a/a'],
+        ['name' => 'b/b'],
+    ], ['b/b']);
+    file_put_contents($vendorDir . '/composer/installed.php', '<?php return [];');
+
+    // Workspace requires only a/a
+    $pkgDir = $projectDir . '/packages/my-pkg';
+    mkdir($pkgDir . '/bin', 0755, true);
+    file_put_contents($pkgDir . '/bin/tool', '#!/usr/bin/env php');
+    file_put_contents($pkgDir . '/composer.json', json_encode([
+        'name' => 'test/my-pkg',
+        'bin' => ['bin/tool'],
+        'require' => ['a/a' => '^1.0'],
+    ]));
+
+    [$composer, $io] = composerInstance([
+        'workspaces' => ['paths' => ['packages/*']],
+    ], $vendorDir);
+
+    $plugin = new Plugin();
+    $plugin->activate($composer, $io);
+    $plugin->onPostInstallOrUpdate();
+
+    $workspaceVendor = $projectDir . '/packages/my-pkg/vendor';
+    $scopedInstalled = json_decode(file_get_contents($workspaceVendor . '/composer/installed.json'), true);
+
+    // Only a/a should be in the scoped installed.json
+    $names = array_column($scopedInstalled['packages'], 'name');
+    expect($names)->toBe(['a/a']);
+
+    // b/b should be filtered from dev-package-names too
+    expect($scopedInstalled['dev-package-names'])->toBe([]);
+});
+
+it('onPostInstallOrUpdate includes require-dev deps in symlinks', function () {
+    $projectDir = createTempProjectDir();
+    $vendorDir = $projectDir . '/vendor';
+    mkdir($vendorDir . '/composer', 0755, true);
+
+    mkdir($vendorDir . '/a/a', 0755, true);
+    mkdir($vendorDir . '/dev/tool', 0755, true);
+
+    writeInstalledJson($vendorDir, [
+        ['name' => 'a/a'],
+        ['name' => 'dev/tool'],
+    ], ['dev/tool']);
+    file_put_contents($vendorDir . '/composer/installed.php', '<?php return [];');
+
+    // Workspace has a/a in require and dev/tool in require-dev
+    $pkgDir = $projectDir . '/packages/my-pkg';
+    mkdir($pkgDir . '/bin', 0755, true);
+    file_put_contents($pkgDir . '/bin/tool', '#!/usr/bin/env php');
+    file_put_contents($pkgDir . '/composer.json', json_encode([
+        'name' => 'test/my-pkg',
+        'bin' => ['bin/tool'],
+        'require' => ['a/a' => '^1.0'],
+        'require-dev' => ['dev/tool' => '^1.0'],
+    ]));
+
+    [$composer, $io] = composerInstance([
+        'workspaces' => ['paths' => ['packages/*']],
+    ], $vendorDir);
+
+    $plugin = new Plugin();
+    $plugin->activate($composer, $io);
+    $plugin->onPostInstallOrUpdate();
+
+    $workspaceVendor = $projectDir . '/packages/my-pkg/vendor';
+
+    // Both should be symlinked
+    expect(is_link($workspaceVendor . '/a/a'))->toBeTrue();
+    expect(is_link($workspaceVendor . '/dev/tool'))->toBeTrue();
+});
+
+it('onPostInstallOrUpdate removes stale symlinks', function () {
+    $projectDir = createTempProjectDir();
+    $vendorDir = $projectDir . '/vendor';
+    mkdir($vendorDir . '/composer', 0755, true);
+
+    // Create vendor packages
+    mkdir($vendorDir . '/a/a', 0755, true);
+    mkdir($vendorDir . '/stale/pkg', 0755, true);
+
+    writeInstalledJson($vendorDir, [
+        ['name' => 'a/a'],
+        ['name' => 'stale/pkg'],
+    ]);
+    file_put_contents($vendorDir . '/composer/installed.php', '<?php return [];');
+
+    // Workspace requires only a/a
+    $pkgDir = $projectDir . '/packages/my-pkg';
+    mkdir($pkgDir . '/bin', 0755, true);
+    file_put_contents($pkgDir . '/bin/tool', '#!/usr/bin/env php');
+    file_put_contents($pkgDir . '/composer.json', json_encode([
+        'name' => 'test/my-pkg',
+        'bin' => ['bin/tool'],
+        'require' => ['a/a' => '^1.0'],
+    ]));
+
+    // Pre-create a stale symlink (from a previous unscoped install)
+    $workspaceVendor = $projectDir . '/packages/my-pkg/vendor/stale';
+    mkdir($workspaceVendor, 0755, true);
+    symlink($vendorDir . '/stale/pkg', $workspaceVendor . '/pkg');
+
+    [$composer, $io] = composerInstance([
+        'workspaces' => ['paths' => ['packages/*']],
+    ], $vendorDir);
+
+    $plugin = new Plugin();
+    $plugin->activate($composer, $io);
+    $plugin->onPostInstallOrUpdate();
+
+    $ws = $projectDir . '/packages/my-pkg/vendor';
+
+    // a/a should be symlinked
+    expect(is_link($ws . '/a/a'))->toBeTrue();
+
+    // stale/pkg should have been removed
+    expect(file_exists($ws . '/stale/pkg'))->toBeFalse();
+
+    // stale/ dir should also be removed (empty)
+    expect(is_dir($ws . '/stale'))->toBeFalse();
+});
+
+it('onPostInstallOrUpdate returns early when no installed.json', function () {
+    $projectDir = createTempProjectDir();
+    $vendorDir = $projectDir . '/vendor';
+    mkdir($vendorDir . '/composer', 0755, true);
+
+    // No installed.json created
+
+    // Create a workspace package with bin entry
+    $pkgDir = $projectDir . '/packages/my-pkg';
+    mkdir($pkgDir . '/bin', 0755, true);
+    file_put_contents($pkgDir . '/bin/tool', '#!/usr/bin/env php');
+    file_put_contents($pkgDir . '/composer.json', json_encode([
+        'name' => 'test/my-pkg',
+        'bin' => ['bin/tool'],
+    ]));
+
+    [$composer, $io] = composerInstance([
+        'workspaces' => ['paths' => ['packages/*']],
+    ], $vendorDir);
+
+    $plugin = new Plugin();
+    $plugin->activate($composer, $io);
+    $plugin->onPostInstallOrUpdate();
+
+    // Workspace should NOT have a vendor dir (no installed.json = no vendor setup)
+    $workspaceVendor = $projectDir . '/packages/my-pkg/vendor';
+    expect(is_dir($workspaceVendor))->toBeFalse();
 });
